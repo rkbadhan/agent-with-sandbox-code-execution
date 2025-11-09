@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  sandbox:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: sandbox-agent:latest
+    container_name: sandbox-agent
+    hostname: sandbox
+
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - HOME=/home/user
+      - USER=user
+
+    # Volumes
+    volumes:
+      # Workspace (read-write)
+      - workspace:/home/user/workspace
+      # User data (read-only)
+      - ${USER_DATA_PATH:-./user-data}:/mnt/user-data:ro
+      # Skills documentation (read-only)
+      - ${SKILLS_PATH:-./skills}:/mnt/skills:ro
+      # Transcripts (read-only)
+      - ${TRANSCRIPTS_PATH:-./transcripts}:/mnt/transcripts:ro
+
+    # Network settings
+    networks:
+      - sandbox-net
+
+    # DNS settings
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Keep container running
+    tty: true
+    stdin_open: true
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Network proxy for filtering allowed domains
+  proxy:
+    image: mitmproxy/mitmproxy:latest
+    container_name: sandbox-proxy
+    hostname: proxy
+
+    command: mitmdump --mode transparent --showhost
+
+    ports:
+      - "${PROXY_PORT:-8888}:8080"
+
+    networks:
+      - sandbox-net
+
+    restart: unless-stopped
+
+    volumes:
+      - proxy-data:/home/mitmproxy/.mitmproxy
+
+networks:
+  sandbox-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  workspace:
+    driver: local
+  proxy-data:
+    driver: local
